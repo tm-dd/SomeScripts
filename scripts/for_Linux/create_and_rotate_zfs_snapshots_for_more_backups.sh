@@ -39,12 +39,13 @@ numberOfTheDayOfTheWeek=`date +%u`
 namesOfWeekDays=(sunday monday tuesday wednesday thursday friday saturday sunday)
 nameOfDay="${namesOfWeekDays[${numberOfTheDayOfTheWeek}]}"
 numberOfMonth=`date +%m`
+keepMaxNumberOfMonth=3
 
 if [ "${numberOfTheDayOfTheWeek}" -eq "1" ]
 # on monday start a new weekly snapshot and a snapshot for the monday
 then
 
-	# delete the oldest snapshot, if exists
+	# delete the oldest weekly snapshot, if exists
 	if [ -n "`/usr/sbin/zfs list -t snapshot ${zfsvolumename}@monday3WeeksAgo 2> /dev/null`" ]
 	then 
 		( set -x; /usr/sbin/zfs destroy "${zfsvolumename}@monday3WeeksAgo" )
@@ -70,11 +71,16 @@ then
 
 fi
 
-# delete and create new snapshot for the weekday
+# delete and create a new snapshot for the weekday
 if [ -n "`/usr/sbin/zfs list -t snapshot ${zfsvolumename}@${nameOfDay} 2> /dev/null`" ]
 then 
+
+	# delete snapshot, if the name still exists
 	( set -x; /usr/sbin/zfs destroy "${zfsvolumename}@${nameOfDay}" )
+
 fi
+
+# create the new snapshot for the weekday
 ( set -x; /usr/sbin/zfs snapshot "${zfsvolumename}@${nameOfDay}" )
 
 
@@ -82,7 +88,7 @@ fi
 if [ "${numberOfDayInMonth}" -eq "02" ]
 then
 	
-	# delete snapshot
+	# delete snapshot, if the name still exists
 	if [ -n "`/usr/sbin/zfs list -t snapshot ${zfsvolumename}@month-${numberOfMonth} 2> /dev/null`" ]
 	then
 		( set -x; /usr/sbin/zfs destroy "${zfsvolumename}@month-${numberOfMonth}" )
@@ -93,9 +99,21 @@ then
 
 fi
 
+# build the number of monthly snapshots
+numberOfMonthlySnapshots=`/usr/sbin/zfs list -r -t snapshot -o name,creation,space "${zfsvolumename}" -s creation | grep "${zfsvolumename}@month-" | wc -l`
+
+# if too much old monthly snapshots exists, remove the oldes monthly snapshot
+if [ "${numberOfMonthlySnapshots}" -gt "${keepMaxNumberOfMonth}" ]
+then
+	nameOfSnapshotToDelete=`/usr/sbin/zfs list -r -t snapshot -o name,creation,space "${zfsvolumename}" -s creation | grep "${zfsvolumename}@month-" | head -n 1 | awk '{ print $1 }'`
+	( set -x; /usr/sbin/zfs destroy "${nameOfSnapshotToDelete}" )
+fi
+
+# show all snapshots of the volume
 echo
 ( set -x; /usr/sbin/zfs list -r -t snapshot -o name,creation,space "${zfsvolumename}" )
 
+# show the space of the whole pool
 echo
 ( set -x; /usr/sbin/zfs list -o space -r "${zfspool}" )
 
