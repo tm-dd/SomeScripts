@@ -32,8 +32,8 @@
 #echo
 
 tapeDrive=/dev/nst0
-tapeContentList='/tmp/last_tape_backup.txt'
-logfile='/tmp/output-from_write_to_lto_drive.sh.txt'
+logfile='/root/tape_backups/'`date +"%Y-%m-%d"`'_tape_backup_notes.txt'
+tapeContentList='/root/tape_backups/'`date +"%Y-%m-%d"`'_tape_backup_content.txt'
 tarCompressOptions='--multi-volume -cf'
 
 # write all stdout and stderr also into a file
@@ -110,9 +110,14 @@ echo "tape on ${tapeDrive}"
 sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'
 echo
 
-date
 echo
 echo "The backup could be finished now. Please read '${tapeContentList}' for possible content of the backup on the tape and check the file '${logfile}'."
+echo
+(set -x; bzip2 -9 ${tapeContentList})
+echo
+(set -x; mt -f ${tapeDrive} eject)
+echo
+date
 echo
 
 exit 0
