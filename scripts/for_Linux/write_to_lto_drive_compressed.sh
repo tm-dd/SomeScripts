@@ -34,7 +34,9 @@
 tapeDrive=/dev/nst0
 logfile='/root/tape_backups/'`date +"%Y-%m-%d"`'_tape_backup_notes.txt'
 tapeContentList='/root/tape_backups/'`date +"%Y-%m-%d"`'_tape_backup_content.txt'
-tarCompressOptions='--multi-volume -cf'
+tarCreateOptions='-cf'
+tarCompressProgramAndOptions='pigz -7 -r'
+mailSendTo='root'
 
 # write all stdout and stderr also into a file
 exec > >(tee "${logfile}") 2>&1
@@ -57,7 +59,7 @@ fi
 echo
 date
 echo
-pwd
+(set -x; pwd)
 echo
 
 if [ -z "`which sg_read_attr`" ]
@@ -77,18 +79,33 @@ echo "rewind ${tapeDrive}"
 echo
 
 fullSizeInGigaByte=0; for lineInGigaByte in `du -s -BG $@ | awk '{ print $1 }' | sed 's/G$//'`; do let fullSizeInGigaByte=${fullSizeInGigaByte}+${lineInGigaByte}; done
-echo "write the content of '$@' with ${fullSizeInGigaByte} gigabyte (and some more) to the tape drive"
-echo
-( set -x; date; time tar ${tarCompressOptions} ${tapeDrive} $@; date )
+if [ "${tarCompressProgramAndOptions}" != "" ]
+then
+	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) to the tape drive"
+	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
+	echo
+	( set -x; date; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} ${tapeDrive} $@; date )
+else
+	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) to the tape drive"
+	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
+	echo
+	( set -x; date; time tar --multi-volume ${tarCreateOptions} ${tapeDrive} $@; date )
+fi
 echo
 
 ( set -x; mt -f ${tapeDrive} status )
 echo
 
 echo "read backup and write the list of content to the file '${tapeContentList}'"
+echo "read backup and write the list of content to the file '${tapeContentList}'" | mail -s "start reading tape" "${mailSendTo}"
 ( set -x; mt -f ${tapeDrive} rewind )
 ( set -x; mt -f ${tapeDrive} status )
-( set -x; date; time tar -tvf ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+if [ "${tarCompressProgramAndOptions}" != "" ]
+then
+	( set -x; date; time tar -tvzf ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+else
+	( set -x; date; time tar -tvf ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+fi
 echo
 
 echo "write the list of the content to the tape drive"
@@ -111,13 +128,14 @@ sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'
 echo
 
 echo
-echo "The backup could be finished now. Please read '${tapeContentList}' for possible content of the backup on the tape and check the file '${logfile}'."
-echo
 (set -x; bzip2 -9 ${tapeContentList})
+echo
+echo "The backup could be finished now. Please read '${tapeContentList}'.bz2 for possible content of the backup on the tape and check the file '${logfile}' ."
 echo
 (set -x; mt -f ${tapeDrive} eject)
 echo
 date
 echo
+cat "${logfile}" | mail -s "tape backup finished" "${mailSendTo}"
 
 exit 0
