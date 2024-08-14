@@ -102,7 +102,7 @@ echo "read backup and write the list of content to the file '${tapeContentList}'
 ( set -x; mt -f ${tapeDrive} status )
 if [ "${tarCompressProgramAndOptions}" != "" ]
 then
-	( set -x; date; time tar -tvzf ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+	( set -x; date; time cat ${tapeDrive} | pigz -d | tar -tv > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
 else
 	( set -x; date; time tar -tvf ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
 fi
