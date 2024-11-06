@@ -34,8 +34,9 @@
 tapeDrive=/dev/nst0
 logfile='/root/tape_backups/'`date +"%Y-%m-%d"`'_tape_backup_notes.txt'
 tapeContentList='/root/tape_backups/'`date +"%Y-%m-%d"`'_tape_backup_content.txt'
-tarCreateOptions='--multi-volume -cf'
+tarCreateOptions='--multi-volume -c'
 mailSendTo='root'
+tempFile='/zfspool/tape.tar'
 
 # write all stdout and stderr also into a file
 exec > >(tee "${logfile}") 2>&1
@@ -69,7 +70,7 @@ then
 fi
 
 echo "tape on ${tapeDrive}"
-( set -x; sg_read_attr ${tapeDrive} || exit -1 )
+sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB' || exit -1
 echo
 
 echo "rewind ${tapeDrive}"
@@ -81,7 +82,12 @@ fullSizeInGigaByte=0; for lineInGigaByte in `du -s -BG $@ | awk '{ print $1 }' |
 echo "write ${fullSizeInGigaByte} gigabytes (and some more) to the tape drive"
 echo "write ${fullSizeInGigaByte} gigabytes (and some more) to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
 echo
-( set -x; date; time tar ${tarCreateOptions} ${tapeDrive} $@; date )
+
+echo "creating the tar file ${tempFile} ..."
+( set -x; date; rm -vf ${tempFile}; tar ${tarCreateOptions} -f ${tempFile} $@; date; ls -lh ${tempFile} )
+
+echo "using the following command line to write: time dd if=${tempFile} of=${tapeDrive} bs=1M"
+( set -x; date; time dd if=${tempFile} of=${tapeDrive} bs=1M; date )
 echo
 
 ( set -x; mt -f ${tapeDrive} status )
@@ -91,14 +97,17 @@ echo "read backup and write the list of content to the file '${tapeContentList}'
 echo "read backup and write the list of content to the file '${tapeContentList}'" | mail -s "start reading tape" "${mailSendTo}"
 ( set -x; mt -f ${tapeDrive} rewind )
 ( set -x; mt -f ${tapeDrive} status )
-( set -x; date; time tar -tvf ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+
+echo "using the following command line to read: date; dd if=${tapeDrive} bs=1M | time tar -tv > "${tapeContentList}
+( set -x; date; dd if=${tapeDrive} bs=1M | time tar -tv > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+
 echo
 
 echo "write the list of the content to the tape drive"
 ( set -x; mt -f ${tapeDrive} rewind )
 ( set -x; mt -f ${tapeDrive} fsf 1 )
 ( set -x; mt -f ${tapeDrive} status )
-( set -x; date; time tar -cf ${tapeDrive} "${tapeContentList}"; date )
+( set -x; date; time tar -c "${tapeContentList}" | dd of=${tapeDrive} bs=1M; date )
 echo 
 
 ( set -x; mt -f ${tapeDrive} status )
@@ -113,10 +122,9 @@ echo "tape on ${tapeDrive}"
 sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'
 echo
 
-echo
 (set -x; bzip2 -9 ${tapeContentList})
 echo
-echo "The backup could be finished now. Please read '${tapeContentList}'.bz2 for possible content of the backup on the tape and check the file '${logfile}' ."
+echo "The backup could be finished now. Please read '${tapeContentList}'.bz2 for possible content of the backup on the tape and check the file '${logfile}' and remove the tar file."
 echo
 (set -x; mt -f ${tapeDrive} eject)
 echo
