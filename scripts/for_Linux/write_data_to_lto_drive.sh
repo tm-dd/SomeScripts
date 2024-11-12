@@ -92,10 +92,10 @@ then
 	echo
 	if [ "$pipeTarToDd" = 'y' ]
 	then
-		echo "using the following command line to write: time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M"
+		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M"
 		( set -x; date; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M; date )
 	else
-		echo "using the following command line to write: time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} $@"
+		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} $@"
 		( set -x; date; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} $@; date )
 	fi
 else
@@ -104,10 +104,10 @@ else
 	echo
 	if [ "$pipeTarToDd" = 'y' ]
 	then
-		echo "using the following command line to write: time tar --multi-volume ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M"
+		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M"
 		( set -x; date; time tar ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M; date )
 	else
-		echo "using the following command line to write: time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} $@"
+		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} $@"
 		( set -x; date; time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} $@; date )
 	fi
 fi
@@ -125,19 +125,19 @@ if [ "$pipeTarToDd" = 'y' ]
 then
 	if [ "${tarCompressProgramAndOptions}" != "" ]
 	then
-		echo "using the following command line to read: time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
+		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
 		( set -x; date; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
 	else
-		echo "using the following command line to read: time dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
+		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
 		( set -x; date; time dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
 	fi
 else
 	if [ "${tarCompressProgramAndOptions}" != "" ]
 	then
-		echo "using the following command line to read: time cat ${tapeDrive} | pigz -d | tar ${tarReadOptions} >  "'"'${tapeContentList}'"'
-		( set -x; date; time cat ${tapeDrive} | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} >  "'"'${tapeContentList}'"'
+		( set -x; date; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
 	else
-		echo "using the following command line to read: time tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}
+		echo "using the following command line to read: tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}
 		( set -x; date; time tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
 	fi
 fi
