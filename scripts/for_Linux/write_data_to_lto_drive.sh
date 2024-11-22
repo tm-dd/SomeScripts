@@ -23,24 +23,21 @@
 # IN THE SOFTWARE.
 #
 
-#echo "search drives with auto rewind"
-#( set -x; ls -l /dev/st* | grep tape )
-#echo
-
-#echo "search drives without auto rewind"
-#( set -x; ls -l /dev/nst* | grep tape )
-#echo
-
 tapeDrive=/dev/nst0
-logfile='/root/tape_backups/'`date +"%Y-%m-%d_%H-%M"`'_tape_backup_notes.txt'
-tapeContentList='/root/tape_backups/'`date +"%Y-%m-%d_%H-%M"`'_tape_backup_content.txt'
-tarCreateOptions='-c --blocking-factor=2048'
-tarReadOptions='-t -v --blocking-factor=2048'
-# tarCompressProgramAndOptions='pigz -7 -r'
+tarBlockingFactorOptionalOption='--blocking-factor=2048'
+tarCreateOptions="-c ${tarBlockingFactorOptionalOption}"
+tarReadOptions=-"t -v ${tarBlockingFactorOptionalOption}"
+# tarCompressProgramAndOptions='pigz -3 -r'
 tarCompressProgramAndOptions=''
+
 pipeTarToDd='n'
 ejectTapeAtWriteEnd='y'
 mailSendTo='root'
+
+timeFileNamesOffset=`date +"%Y-%m-%d_%H-%M"`
+logfile="/root/tape_backups/${timeFileNamesOffset}_tape_backup_notes.txt"
+tapeContentList="/root/tape_backups/${timeFileNamesOffset}_tape_backup_content.txt"
+md5ChecksumFile="/root/tape_backups/${timeFileNamesOffset}_tape_backup_checksums.md5"
 
 # write all stdout and stderr also into a file
 exec > >(tee "${logfile}") 2>&1
@@ -54,14 +51,8 @@ then
 	exit -1
 fi
 
-if [ -z "`pwd | grep .zfs/snapshot`" ] && [ -d ".zfs/snapshot" ]
-then 
-	echo "Maybe better use a subfolder of .zfs/snapshot/ for reading to a backup ?"
-	( echo "chance to break"; sleep 10; echo "continue without break" );
-fi
-
 echo
-echo "started: $0 $@"
+echo "start of: $0 $@"
 echo
 date
 echo
@@ -84,95 +75,127 @@ echo "rewind ${tapeDrive}"
 ( set -x; mt -f ${tapeDrive} status )
 echo
 
-fullSizeInGigaByte=0; for lineInGigaByte in `du -s -BG $@ | awk '{ print $1 }' | sed 's/G$//'`; do let fullSizeInGigaByte=${fullSizeInGigaByte}+${lineInGigaByte}; done
+rm -f "${md5ChecksumFile}"
+numOfFiles='???'
+
+if [ "${md5ChecksumFile}" != "" ]
+then
+	date
+	echo
+	echo "create checksum file '${md5ChecksumFile}' for a later file integrity check for the files on the tape"
+	find $@ -type f -exec md5sum {} \; > "${md5ChecksumFile}"
+	numOfFiles=`wc -l "${md5ChecksumFile}" | awk '{ print $1 }'`
+	echo
+	date
+	echo
+fi
+
+echo "checking the size of the backup data"
+fullSizeInGigaByte=0; for lineInGigaByte in `du -s -BG $@ "${md5ChecksumFile}" 2> /dev/null | awk '{ print $1 }' | sed 's/G$//'`; do let fullSizeInGigaByte=${fullSizeInGigaByte}+${lineInGigaByte}; done
+echo
+date
+echo
+
 if [ "${tarCompressProgramAndOptions}" != "" ]
 then
-	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) to the tape drive"
-	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
+	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive"
+	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
 	echo
 	if [ "$pipeTarToDd" = 'y' ]
 	then
-		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M"
-		( set -x; date; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M; date )
+		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} "'"'${md5ChecksumFile}'"'" $@ | dd of=${tapeDrive} bs=1M"
+		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} "${md5ChecksumFile}" $@ | dd of=${tapeDrive} bs=1M )
 	else
-		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} $@"
-		( set -x; date; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} $@; date )
+		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} "'"'${md5ChecksumFile}'"'" $@"
+		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} "${md5ChecksumFile}" $@ )
 	fi
 else
-	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) to the tape drive"
-	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
+	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive"
+	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
 	echo
 	if [ "$pipeTarToDd" = 'y' ]
 	then
-		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M"
-		( set -x; date; time tar ${tarCreateOptions} $@ | dd of=${tapeDrive} bs=1M; date )
+		echo "using the following command line to write: tar ${tarCreateOptions} "'"'${md5ChecksumFile}'"'" $@ | dd of=${tapeDrive} bs=1M"
+		( echo; set -x; time tar ${tarCreateOptions} "${md5ChecksumFile}" $@ | dd of=${tapeDrive} bs=1M )
 	else
-		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} $@"
-		( set -x; date; time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} $@; date )
+		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} "'"'${md5ChecksumFile}'"'" $@"
+		( echo; set -x; time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} "${md5ChecksumFile}" $@ )
 	fi
 fi
 echo
 
-( set -x; mt -f ${tapeDrive} status )
-echo
+( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 
+echo
+date
+echo
 echo "read backup and write the list of content to the file '${tapeContentList}'"
 echo "read backup and write the list of content to the file '${tapeContentList}'" | mail -s "start reading tape" "${mailSendTo}"
+echo
 ( set -x; mt -f ${tapeDrive} rewind )
-( set -x; mt -f ${tapeDrive} status )
+( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+echo
 
 if [ "$pipeTarToDd" = 'y' ]
 then
 	if [ "${tarCompressProgramAndOptions}" != "" ]
 	then
 		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
-		( set -x; date; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+		( echo; set -x; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}" )
 	else
 		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "'"'${tapeContentList}'"'
-		( set -x; date; time dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+		( echo; set -x; time dd if=${tapeDrive} bs=1M | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}" )
 	fi
 else
 	if [ "${tarCompressProgramAndOptions}" != "" ]
 	then
 		echo "using the following command line to read: dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} >  "'"'${tapeContentList}'"'
-		( set -x; date; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+		( echo; set -x; time dd if=${tapeDrive} bs=1M | pigz -d | tar ${tarReadOptions} > "${tapeContentList}"; wc -l "${tapeContentList}" )
 	else
 		echo "using the following command line to read: tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}
-		( set -x; date; time tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}"; date )
+		( echo; set -x; time tar ${tarReadOptions} -f ${tapeDrive} > "${tapeContentList}"; wc -l "${tapeContentList}" )
 	fi
 fi
 
 echo
-
+date
+echo
 echo "write the list of the content to the tape drive"
 ( set -x; mt -f ${tapeDrive} rewind )
 ( set -x; mt -f ${tapeDrive} fsf 1 )
-( set -x; mt -f ${tapeDrive} status )
+( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
+echo
+date
+echo
 if [ "$pipeTarToDd" = 'y' ]
 then
 	echo 'using the following command line to write: tar '${tarCreateOptions}' "'${tapeContentList}'" | dd of='${tapeDrive}' bs=1M'
-	( set -x; date; tar ${tarCreateOptions} "${tapeContentList}" | dd of=${tapeDrive} bs=1M; date )
+	( echo; set -x; tar ${tarCreateOptions} "${tapeContentList}" | dd of=${tapeDrive} bs=1M )
 else
 	echo 'using the following command line to write: tar '${tarCreateOptions}' -f '${tapeDrive}' "'${tapeContentList}'"'
-	( set -x; date; tar ${tarCreateOptions} -f ${tapeDrive} "${tapeContentList}"; date )
+	( echo; set -x; tar ${tarCreateOptions} -f ${tapeDrive} "${tapeContentList}" )
 fi
 echo 
 
-( set -x; mt -f ${tapeDrive} status )
+( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 echo
 
 echo "rewind ${tapeDrive}"
 ( set -x; mt -f ${tapeDrive} rewind )
-( set -x; mt -f ${tapeDrive} status )
+( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
 echo
 
 echo "tape on ${tapeDrive}"
 sg_read_attr ${tapeDrive} | grep 'Medium serial number\|MiB'
 echo
 
-(set -x; bzip2 -9 ${tapeContentList})
+date
 echo
-echo "The backup could be finished now. Please read '${tapeContentList}.bz2' for possible content of the backup on the tape and check the file '${logfile}' ."
+(set -x; bzip2 -9 ${tapeContentList} ${md5ChecksumFile})
+echo
+date
+echo
+echo "The backup could be finished now. Please read '${tapeContentList}.bz2'  and '${md5ChecksumFile}.bz2' for the content and the checksums of the backup on the tape and check the file '${logfile}'."
 echo
 if [ "${ejectTapeAtWriteEnd}" = 'y' ]
 then
@@ -180,6 +203,8 @@ then
 	echo
 fi
 date
+echo
+echo "end of: $0 $@"
 echo
 cat "${logfile}" | mail -s "tape backup finished" "${mailSendTo}"
 
