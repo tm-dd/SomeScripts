@@ -83,7 +83,7 @@ then
 	date
 	echo
 	echo "create checksum file '${md5ChecksumFile}' for a later file integrity check for the files on the tape"
-	find $@ -type f -exec md5sum {} \; > "${md5ChecksumFile}"
+	find $@ -type f -exec md5sum {} + > "${md5ChecksumFile}"
 	numOfFiles=`wc -l "${md5ChecksumFile}" | awk '{ print $1 }'`
 	echo
 	date
