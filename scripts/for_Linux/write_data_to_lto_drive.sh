@@ -33,6 +33,7 @@ tarCompressProgramAndOptions=''
 pipeTarToDd='n'
 ejectTapeAtWriteEnd='y'
 mailSendTo='root'
+createCheckSumFile='y'
 
 timeFileNamesOffset=`date +"%Y-%m-%d_%H-%M"`
 logfile="/root/tape_backups/${timeFileNamesOffset}_tape_backup_notes.txt"
@@ -75,51 +76,62 @@ echo "rewind ${tapeDrive}"
 ( set -x; mt -f ${tapeDrive} status )
 echo
 
-rm -f "${md5ChecksumFile}"
-numOfFiles='???'
+numOfFiles='?'
 
-if [ "${md5ChecksumFile}" != "" ]
+echo "checking the size of the backup data"
+fullSizeInGigaByte=0; 
+for lineInGigaByte in `du -s -BG $@ "${md5ChecksumFile}" 2> /dev/null | awk '{ print $1 }' | sed 's/G$//'`
+do
+	let fullSizeInGigaByte=${fullSizeInGigaByte}+${lineInGigaByte}
+done
+echo
+date
+echo
+
+if [ "${createCheckSumFile}" = 'y' ]
 then
 	date
 	echo
+	rm -f "${md5ChecksumFile}"
 	echo "create checksum file '${md5ChecksumFile}' for a later file integrity check for the files on the tape"
-	find $@ -type f -exec md5sum {} + > "${md5ChecksumFile}"
+	echo "create CHECKSUM file '${md5ChecksumFile}' for a later file integrity check for the files on the tape" | mail -s 'start creating checksum file for data for the tape' ${mailSendTo}
+	if [ -n "`which parallel`" ]
+	then
+		find $@ -type f | parallel -j 16 md5sum > "${md5ChecksumFile}"
+	else
+		echo "missing software 'parallel'";
+		find $@ -type f -exec md5sum {} + > "${md5ChecksumFile}"
+	fi
 	numOfFiles=`wc -l "${md5ChecksumFile}" | awk '{ print $1 }'`
 	echo
 	date
 	echo
 fi
 
-echo "checking the size of the backup data"
-fullSizeInGigaByte=0; for lineInGigaByte in `du -s -BG $@ "${md5ChecksumFile}" 2> /dev/null | awk '{ print $1 }' | sed 's/G$//'`; do let fullSizeInGigaByte=${fullSizeInGigaByte}+${lineInGigaByte}; done
-echo
-date
-echo
-
 if [ "${tarCompressProgramAndOptions}" != "" ]
 then
 	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive"
-	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
+	echo "write the COMPRESSED content of ${fullSizeInGigaByte} UNCOMPRESSED gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" ${mailSendTo}
 	echo
 	if [ "$pipeTarToDd" = 'y' ]
 	then
-		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} "'"'${md5ChecksumFile}'"'" $@ | dd of=${tapeDrive} bs=1M"
-		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} "${md5ChecksumFile}" $@ | dd of=${tapeDrive} bs=1M )
+		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M"
+		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M )
 	else
-		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} "'"'${md5ChecksumFile}'"'" $@"
-		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} "${md5ChecksumFile}" $@ )
+		echo "using the following command line to write: tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@"
+		( echo; set -x; time tar --use-compress-program="${tarCompressProgramAndOptions}" ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@ )
 	fi
 else
 	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive"
-	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" "${mailSendTo}"
+	echo "write the UNCOMPRESSED content of ${fullSizeInGigaByte} gigabytes (and some more) with ${numOfFiles} files to the tape drive" | mail -s "start writing tape" ${mailSendTo}
 	echo
 	if [ "$pipeTarToDd" = 'y' ]
 	then
-		echo "using the following command line to write: tar ${tarCreateOptions} "'"'${md5ChecksumFile}'"'" $@ | dd of=${tapeDrive} bs=1M"
-		( echo; set -x; time tar ${tarCreateOptions} "${md5ChecksumFile}" $@ | dd of=${tapeDrive} bs=1M )
+		echo "using the following command line to write: tar ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M"
+		( echo; set -x; time tar ${tarCreateOptions} ${md5ChecksumFile} $@ | dd of=${tapeDrive} bs=1M )
 	else
-		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} "'"'${md5ChecksumFile}'"'" $@"
-		( echo; set -x; time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} "${md5ChecksumFile}" $@ )
+		echo "using the following command line to write: tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@"
+		( echo; set -x; time tar --multi-volume ${tarCreateOptions} -f ${tapeDrive} ${md5ChecksumFile} $@ )
 	fi
 fi
 echo
@@ -130,7 +142,7 @@ echo
 date
 echo
 echo "read backup and write the list of content to the file '${tapeContentList}'"
-echo "read backup and write the list of content to the file '${tapeContentList}'" | mail -s "start reading tape" "${mailSendTo}"
+echo "read backup and write the list of content to the file '${tapeContentList}'" | mail -s "start reading tape" ${mailSendTo}
 echo
 ( set -x; mt -f ${tapeDrive} rewind )
 ( set -x; mt -f ${tapeDrive} status | grep 'file number =' )
@@ -206,6 +218,6 @@ date
 echo
 echo "end of: $0 $@"
 echo
-cat "${logfile}" | mail -s "tape backup finished" "${mailSendTo}"
+cat "${logfile}" | mail -s "tape backup finished" ${mailSendTo}
 
 exit 0
